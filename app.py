@@ -4,31 +4,30 @@ import numpy as np
 import matplotlib.pyplot as plt
 import xgboost as xgb
 import joblib
-from sklearn.metrics import roc_curve, auc, confusion_matrix, ConfusionMatrixDisplay, classification_report
-from sklearn.model_selection import train_test_split
-from imblearn.over_sampling import SMOTE
+from sklearn.metrics import (roc_curve, auc, confusion_matrix, 
+                             ConfusionMatrixDisplay, classification_report,
+                             roc_auc_score, accuracy_score)
 
 # --- Load data and model ---
 @st.cache_data
 def load_data():
-    cc = pd.read_csv('customer_churn_dataset.csv')
-    return cc
+    return pd.read_csv('customer_churn_dataset.csv')
 
 @st.cache_resource
 def load_model():
     return joblib.load('churn_model.pkl')
 
-cc = load_data()
-model = load_model()
-
-# --- Rebuild x_test, y_test (same pipeline as notebook) ---
 @st.cache_data
-def get_test_data():
+def load_test_data():
     x_test = pd.read_csv('x_test.csv')
     y_test = pd.read_csv('y_test.csv').squeeze()
-    feature_cols = x_test.columns.tolist()
-    return x_test, y_test, feature_cols
-# --- Sidebar navigation ---
+    return x_test, y_test
+
+cc = load_data()
+model = load_model()
+x_test, y_test = load_test_data()
+
+# --- Sidebar ---
 st.sidebar.title("Navigation")
 page = st.sidebar.radio("Go to", ["Overview", "Model Performance", "Predict Customer"])
 
@@ -36,35 +35,41 @@ page = st.sidebar.radio("Go to", ["Overview", "Model Performance", "Predict Cust
 # PAGE 1 — OVERVIEW
 # ================================================
 if page == "Overview":
-    st.title("Customer Churn Dashboard")
+    st.title("📊 Customer Churn Dashboard")
     st.markdown("Telecom customer churn analysis using XGBoost")
 
     # KPI metrics
     total = len(cc)
-    churned = cc['churn'].value_counts()['Yes']
+    churned = cc['churn'].value_counts()[1]
+    not_churned = cc['churn'].value_counts()[0]
     churn_rate = churned / total * 100
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     col1.metric("Total Customers", f"{total:,}")
-    col2.metric("Churned Customers", f"{churned:,}")
-    col3.metric("Churn Rate", f"{churn_rate:.1f}%")
+    col2.metric("Churned", f"{churned:,}")
+    col3.metric("Retained", f"{not_churned:,}")
+    col4.metric("Churn Rate", f"{churn_rate:.1f}%")
 
     st.divider()
 
-    # Churn distribution
+    # Churn distribution and contract
     col1, col2 = st.columns(2)
 
     with col1:
         st.subheader("Churn Distribution")
         fig, ax = plt.subplots()
-        cc['churn'].value_counts().plot.pie(autopct='%1.1f%%', labels=['No Churn', 'Churn'], ax=ax)
+        counts = cc['churn'].value_counts().sort_index()
+        ax.pie(counts, autopct='%1.1f%%', labels=['No Churn', 'Churn'],
+               colors=['steelblue', 'tomato'])
         ax.set_ylabel('')
         st.pyplot(fig)
 
     with col2:
         st.subheader("Churn by Contract Type")
         fig, ax = plt.subplots()
-        cc.groupby(['contract', 'churn']).size().unstack().plot(kind='bar', ax=ax)
+        contract_churn = cc.groupby(['contract', 'churn']).size().unstack()
+        contract_churn.columns = ['No Churn', 'Churn']
+        contract_churn.plot(kind='bar', ax=ax, color=['steelblue', 'tomato'])
         ax.set_xlabel('Contract Type')
         ax.set_ylabel('Count')
         plt.xticks(rotation=45)
@@ -72,40 +77,55 @@ if page == "Overview":
 
     st.divider()
 
-    # Tenure and charges comparison
-    st.subheader("Churners vs Non-Churners")
+    # Tenure and charges
     col1, col2 = st.columns(2)
 
     with col1:
+        st.subheader("Average Tenure")
         fig, ax = plt.subplots()
-        cc.groupby('churn')['tenure'].mean().plot(kind='bar', ax=ax, color=['steelblue', 'tomato'])
-        ax.set_title('Average Tenure')
+        cc.groupby('churn')['tenure'].mean().plot(
+            kind='bar', ax=ax, color=['steelblue', 'tomato'])
+        ax.set_xticklabels(['No Churn', 'Churn'], rotation=0)
         ax.set_ylabel('Months')
-        plt.xticks(rotation=0)
         st.pyplot(fig)
 
     with col2:
+        st.subheader("Average Monthly Charges")
         fig, ax = plt.subplots()
-        cc.groupby('churn')['monthly_charges'].mean().plot(kind='bar', ax=ax, color=['steelblue', 'tomato'])
-        ax.set_title('Average Monthly Charges')
-        ax.set_ylabel('Amount')
-        plt.xticks(rotation=0)
+        cc.groupby('churn')['monthly_charges'].mean().plot(
+            kind='bar', ax=ax, color=['steelblue', 'tomato'])
+        ax.set_xticklabels(['No Churn', 'Churn'], rotation=0)
+        ax.set_ylabel('Amount ($)')
         st.pyplot(fig)
+
+    st.divider()
+
+    # Support calls
+    st.subheader("Support Calls Distribution by Churn")
+    fig, ax = plt.subplots()
+    cc[cc['churn'] == 0]['support_calls'].value_counts().sort_index().plot(
+        kind='bar', ax=ax, color='steelblue', alpha=0.7, label='No Churn', position=1, width=0.4)
+    cc[cc['churn'] == 1]['support_calls'].value_counts().sort_index().plot(
+        kind='bar', ax=ax, color='tomato', alpha=0.7, label='Churn', position=0, width=0.4)
+    ax.set_xlabel('Number of Support Calls')
+    ax.set_ylabel('Count')
+    ax.legend()
+    st.pyplot(fig)
 
 # ================================================
 # PAGE 2 — MODEL PERFORMANCE
 # ================================================
 elif page == "Model Performance":
-    st.title("Model Performance")
+    st.title("📈 Model Performance")
 
     y_pred = model.predict(x_test)
     y_prob = model.predict_proba(x_test)[:, 1]
 
     # Metrics
-    from sklearn.metrics import roc_auc_score, accuracy_score
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     col1.metric("ROC-AUC", f"{roc_auc_score(y_test, y_prob):.4f}")
     col2.metric("Accuracy", f"{accuracy_score(y_test, y_pred):.4f}")
+    col3.metric("Test Samples", f"{len(y_test):,}")
 
     st.divider()
 
@@ -117,7 +137,7 @@ elif page == "Model Performance":
         fpr, tpr, _ = roc_curve(y_test, y_prob)
         roc_auc = auc(fpr, tpr)
         fig, ax = plt.subplots()
-        ax.plot(fpr, tpr, label=f'AUC = {roc_auc:.2f}')
+        ax.plot(fpr, tpr, color='steelblue', label=f'AUC = {roc_auc:.2f}')
         ax.plot([0, 1], [0, 1], 'k--')
         ax.set_xlabel('False Positive Rate')
         ax.set_ylabel('True Positive Rate')
@@ -131,8 +151,10 @@ elif page == "Model Performance":
         cm = confusion_matrix(y_test, y_pred)
         fig, ax = plt.subplots()
         disp = ConfusionMatrixDisplay(cm, display_labels=['No Churn', 'Churn'])
-        disp.plot(ax=ax)
+        disp.plot(ax=ax, colorbar=False)
         st.pyplot(fig)
+
+    st.divider()
 
     # Feature Importance
     st.subheader("Top 10 Feature Importances")
@@ -140,24 +162,30 @@ elif page == "Model Performance":
     xgb.plot_importance(model, max_num_features=10, ax=ax)
     st.pyplot(fig)
 
-    # Classification report
+    st.divider()
+
+    # Classification Report
     st.subheader("Classification Report")
-    report = classification_report(y_test, y_pred, target_names=['No Churn', 'Churn'], output_dict=True)
+    report = classification_report(
+        y_test, y_pred,
+        target_names=['No Churn', 'Churn'],
+        output_dict=True
+    )
     st.dataframe(pd.DataFrame(report).transpose().round(2))
 
 # ================================================
-# PAGE 3 — PREDICT SINGLE CUSTOMER
+# PAGE 3 — PREDICT CUSTOMER
 # ================================================
 elif page == "Predict Customer":
-    st.title("Predict Customer Churn")
+    st.title("🔍 Predict Customer Churn")
     st.markdown("Enter customer details to get churn probability")
 
     col1, col2 = st.columns(2)
 
     with col1:
         tenure = st.slider("Tenure (months)", 1, 72, 12)
-        monthly_charges = st.number_input("Monthly Charges", 20.0, 120.0, 60.0)
-        total_charges = st.number_input("Total Charges", 20.0, 9000.0, float(tenure * monthly_charges))
+        monthly_charges = st.number_input("Monthly Charges ($)", 20.0, 120.0, 60.0)
+        total_charges = st.number_input("Total Charges ($)", 20.0, 9000.0, float(tenure * monthly_charges))
         support_calls = st.slider("Support Calls", 0, 8, 1)
 
     with col2:
@@ -168,35 +196,67 @@ elif page == "Predict Customer":
         online_security = st.selectbox("Online Security", ["Yes", "No"])
 
     if st.button("Predict Churn", type="primary"):
-        # Build input matching training feature columns
-        input_dict = {col: 0 for col in feature_cols}
 
-        input_dict['tenure'] = tenure
-        input_dict['monthly_charges'] = monthly_charges
-        input_dict['total_charges'] = total_charges
-        input_dict['support_calls'] = support_calls
-
-        # Map selectbox values to one-hot columns
-        # (drop_first removes: contract_Month-to-month, payment_method_Cash,
-        #  internet_service_DSL, tech_support_No, online_security_No)
-        col_map = {
-            f'contract_{contract}': 1,
-            f'payment_method_{payment_method}': 1,
-            f'internet_service_{internet_service}': 1,
-            f'tech_support_{tech_support}': 1,
-            f'online_security_{online_security}': 1,
+        # Build input with all 18 columns set to 0
+        input_dict = {
+            'tenure': tenure,
+            'monthly_charges': monthly_charges,
+            'total_charges': total_charges,
+            'support_calls': support_calls,
+            'payment_method_Cash': 0,
+            'payment_method_Credit': 0,
+            'payment_method_Debit': 0,
+            'payment_method_UPI': 0,
+            'contract_Month-to-month': 0,
+            'contract_One year': 0,
+            'contract_Two year': 0,
+            'internet_service_': 0,
+            'internet_service_DSL': 0,
+            'internet_service_Fiber': 0,
+            'tech_support_No': 0,
+            'tech_support_Yes': 0,
+            'online_security_No': 0,
+            'online_security_Yes': 0
         }
-        for col, val in col_map.items():
-            if col in input_dict:
-                input_dict[col] = val
+
+        # Set the correct one-hot columns to 1
+        input_dict[f'payment_method_{payment_method}'] = 1
+        input_dict[f'contract_{contract}'] = 1
+        input_dict[f'tech_support_{tech_support}'] = 1
+        input_dict[f'online_security_{online_security}'] = 1
+
+        # Handle internet service
+        if internet_service == 'No Service':
+            input_dict['internet_service_'] = 1
+        else:
+            input_dict[f'internet_service_{internet_service}'] = 1
 
         input_df = pd.DataFrame([input_dict])
+
         prob = model.predict_proba(input_df)[0][1]
 
         st.divider()
-        if prob >= 0.5:
-            st.error(f"⚠️ High Churn Risk: {prob:.1%} probability")
+        if prob >= 0.7:
+            st.error(f"🚨 High Churn Risk: {prob:.1%} probability")
+        elif prob >= 0.4:
+            st.warning(f"⚠️ Medium Churn Risk: {prob:.1%} probability")
         else:
             st.success(f"✅ Low Churn Risk: {prob:.1%} probability")
 
         st.progress(float(prob))
+
+        # Show input summary
+        st.divider()
+        st.subheader("Customer Summary")
+        summary = {
+            'Tenure': f"{tenure} months",
+            'Monthly Charges': f"${monthly_charges:.2f}",
+            'Total Charges': f"${total_charges:.2f}",
+            'Support Calls': support_calls,
+            'Contract': contract,
+            'Payment Method': payment_method,
+            'Internet Service': internet_service,
+            'Tech Support': tech_support,
+            'Online Security': online_security
+        }
+        st.table(pd.DataFrame(summary.items(), columns=['Feature', 'Value']))
