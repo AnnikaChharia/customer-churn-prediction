@@ -55,7 +55,7 @@ st.sidebar.write(f"Churn Rate: {cc['churn'].mean()*100:.1f}%")
 if page == "🏠 Overview":
 
     st.title("📊 Customer Churn Prediction Dashboard")
-    st.markdown("Analyze customer churn patterns and predict churn risk using XGBoost.")
+    st.markdown("Analyze customer churn patterns and predict churn risk.")
     st.markdown("---")
 
     # --- KPI Cards ---
