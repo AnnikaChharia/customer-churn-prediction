@@ -24,23 +24,10 @@ model = load_model()
 # --- Rebuild x_test, y_test (same pipeline as notebook) ---
 @st.cache_data
 def get_test_data():
-    df = cc.copy()
-    df['churn'] = df['churn'].map({'No': 0, 'Yes': 1})
-    df['internet_service'] = df['internet_service'].fillna('No Service')
-
-    X = df[['tenure', 'monthly_charges', 'total_charges', 'support_calls']]
-    categorical_cols = ['payment_method', 'contract', 'internet_service', 'tech_support', 'online_security']
-    df_encoded = pd.get_dummies(df[categorical_cols], columns=categorical_cols, dtype=int, drop_first=True)
-    X = pd.concat([X, df_encoded], axis=1)
-    Y = df['churn']
-
-    x_train, x_test, y_train, y_test = train_test_split(X, Y, test_size=0.2, random_state=2)
-    smote = SMOTE(random_state=42)
-    x_train, y_train = smote.fit_resample(x_train, y_train)
-    return x_test, y_test, X.columns.tolist()
-
-x_test, y_test, feature_cols = get_test_data()
-
+    x_test = pd.read_csv('x_test.csv')
+    y_test = pd.read_csv('y_test.csv').squeeze()
+    feature_cols = x_test.columns.tolist()
+    return x_test, y_test, feature_cols
 # --- Sidebar navigation ---
 st.sidebar.title("Navigation")
 page = st.sidebar.radio("Go to", ["Overview", "Model Performance", "Predict Customer"])
