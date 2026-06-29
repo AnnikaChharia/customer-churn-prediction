@@ -5,7 +5,8 @@ A machine learning project to predict telecom customer churn
 using XGBoost with an interactive Streamlit dashboard.
 
 ## Live Demo
-[Click here to view dashboard](your streamlit link)
+[Click here to view dashboard]
+https://customer-churn-prediction-kof9vwergjnqwmh6szzp2n.streamlit.app/
 
 ## Results
 - ROC-AUC: 0.81
